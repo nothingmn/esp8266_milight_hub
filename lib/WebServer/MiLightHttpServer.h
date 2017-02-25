@@ -1,6 +1,11 @@
 #include <WebServer.h>
 #include <MiLightClient.h>
 #include <Settings.h>
+#include <GithubDownloader.h>
+
+#define MILIGHT_GITHUB_USER "sidoh"
+#define MILIGHT_GITHUB_REPO "esp8266_milight_hub"
+#define MILIGHT_REPO_WEB_PATH "/web/index.html"
 
 #ifndef _MILIGHT_HTTP_SERVER
 #define _MILIGHT_HTTP_SERVER 
@@ -35,6 +40,8 @@ protected:
   void handleListenGateway();
   void handleUpdateGroup(const UrlTokenBindings* urlBindings);
   void handleUpdateGateway(const UrlTokenBindings* urlBindings);
+  
+  void handleDownloadUpdate(const UrlTokenBindings* urlBindings);
   
   File updateFile;
   

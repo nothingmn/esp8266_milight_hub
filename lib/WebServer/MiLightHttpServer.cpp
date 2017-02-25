@@ -13,6 +13,7 @@ void MiLightHttpServer::begin() {
   server.onPattern("/gateways/:device_id/:type/:group_id", HTTP_PUT, [this](const UrlTokenBindings* b) { handleUpdateGroup(b); });
   server.onPattern("/gateways/:device_id/:type", HTTP_PUT, [this](const UrlTokenBindings* b) { handleUpdateGateway(b); });
   server.on("/web", HTTP_POST, [this]() { server.send(200, "text/plain", "success"); }, handleUpdateFile(WEB_INDEX_FILENAME));
+  server.onPattern("/download_update/:component", HTTP_GET, [this](const UrlTokenBindings* b) { handleDownloadUpdate(b); });
   server.on("/firmware", HTTP_POST, 
     [this](){
       server.sendHeader("Connection", "close");
@@ -104,6 +105,32 @@ ESP8266WebServer::THandlerFunction MiLightHttpServer::handleUpdateFile(const cha
       updateFile.close();
     }
   };
+}
+
+void MiLightHttpServer::handleDownloadUpdate(const UrlTokenBindings* bindings) {
+  GithubDownloader* downloader = new GithubDownloader();
+  const String& component = bindings->get("component");
+  
+  if (component.equalsIgnoreCase("web")) {
+    const bool result = downloader->downloadFile(
+      MILIGHT_GITHUB_USER,
+      MILIGHT_GITHUB_REPO,
+      MILIGHT_REPO_WEB_PATH,
+      WEB_INDEX_FILENAME
+    );
+    
+    if (result) {
+      server.sendHeader("Location", "/");
+      server.send(302);
+    } else {
+      server.send(500, "text/plain", "Failed to download update from Github. Check serial logs for more information.");
+    }
+  } else {
+    String body = String("Unknown component: ") + component;
+    server.send(400, "text/plain", body);
+  }
+  
+  delete downloader;
 }
 
 void MiLightHttpServer::handleUpdateSettings() {
