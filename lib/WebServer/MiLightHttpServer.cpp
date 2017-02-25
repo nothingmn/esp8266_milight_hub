@@ -1,5 +1,7 @@
 #include <fs.h>
 #include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+
 #include <IntParsing.h>
 #include <Settings.h>
 #include <MiLightHttpServer.h>
@@ -125,6 +127,8 @@ void MiLightHttpServer::handleDownloadUpdate(const UrlTokenBindings* bindings) {
     } else {
       server.send(500, "text/plain", "Failed to download update from Github. Check serial logs for more information.");
     }
+  } else if (component.equalsIgnoreCase("firmware")) {
+    // t_httpUpdate_return ret = ESPhttpUpdate.update();
   } else {
     String body = String("Unknown component: ") + component;
     server.send(400, "text/plain", body);
