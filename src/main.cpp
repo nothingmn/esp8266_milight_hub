@@ -9,6 +9,8 @@
 #include <MiLightHttpServer.h>
 #include <Settings.h>
 #include <MiLightUdpServer.h>
+#include <ArduinoOTA.h>
+#include <ESP8266mDNS.h>
 
 WiFiManager wifiManager;
 

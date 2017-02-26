@@ -1,29 +1,38 @@
 #include <GithubDownloader.h>
 #include <fs.h>
   
-bool GithubDownloader::downloadFile(const String& path, Stream& dest) {
+Stream& GithubDownloader::streamFile(const String& path) {
   if (!client.connect(GITHUB_RAW_DOMAIN, 443)) {
     Serial.println("Failed to connect to github over HTTPS.");
-    return false;
   }
   
   if (!client.verify(GITHUB_SSL_FINGERPRINT, GITHUB_RAW_DOMAIN)) {
     Serial.println("Failed to verify github certificate");
-    return false;
   }
   
   client.print(String("GET ") + path + " HTTP/1.1\r\n" +
                "Host: " + GITHUB_RAW_DOMAIN + "\r\n" +
                "Connection: close\r\n\r\n");
                
-  yield();
+  return client;
+}
   
-  if (client.connected()) {
+Stream& GithubDownloader::streamFile(const String& username, const String& repo, const String& path) {
+  return streamFile(buildPath(username, repo, path));
+}
+  
+bool GithubDownloader::downloadFile(const String& path, Stream& dest) {
+  Stream& client = streamFile(path);
+  
+  if (client.available()) {
     client.find("\r\n\r\n", 4);
+  } else {
+    Serial.println("Failed to open stream to Github");
   }
                
-  while (client.connected()) {
-    size_t l = client.read(buffer, GITHUB_DOWNLOADER_BUFFER_SIZE);
+  while (client.available()) {
+    size_t l = client.readBytes(buffer, GITHUB_DOWNLOADER_BUFFER_SIZE);
+    
     dest.write(buffer, l);
     yield();
   }
@@ -32,8 +41,7 @@ bool GithubDownloader::downloadFile(const String& path, Stream& dest) {
 }
 
 bool GithubDownloader::downloadFile(const String& username, const String& repo, const String& repoPath, Stream& dest) {
-  String path = String("/") + username + "/" + repo + "/master/" + repoPath;
-  return downloadFile(path, dest);
+  return downloadFile(buildPath(username, repo, repoPath), dest);
 }
 
 bool GithubDownloader::downloadFile(const String& username, const String& repo, const String& repoPath, const String& fsPath) {
@@ -45,7 +53,7 @@ bool GithubDownloader::downloadFile(const String& username, const String& repo, 
     return false;
   }
   
-  if (!downloadFile(username, repo, repoPath, f)) {
+  if (!downloadFile(buildPath(username, repo, repoPath), f)) {
     f.close();
     return false;
   }
@@ -53,4 +61,9 @@ bool GithubDownloader::downloadFile(const String& username, const String& repo, 
   f.close();
   
   return true;
+}
+  
+String GithubDownloader::buildPath(const String& username, const String& repo, const String& repoPath) {
+  String path = String("/") + username + "/" + repo + "/master/" + repoPath;
+  return path;
 }

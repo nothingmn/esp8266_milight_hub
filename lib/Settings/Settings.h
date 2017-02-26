@@ -10,6 +10,10 @@
 
 #define WEB_INDEX_FILENAME "/index.html"
 
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "NO_VERSION"
+#endif
+
 class GatewayConfig {
 public:
   GatewayConfig(uint16_t deviceId, uint16_t port, uint8_t protocolVersion) 

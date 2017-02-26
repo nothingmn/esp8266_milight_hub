@@ -1,4 +1,5 @@
 #include <fs.h>
+#include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 
@@ -128,7 +129,54 @@ void MiLightHttpServer::handleDownloadUpdate(const UrlTokenBindings* bindings) {
       server.send(500, "text/plain", "Failed to download update from Github. Check serial logs for more information.");
     }
   } else if (component.equalsIgnoreCase("firmware")) {
-    // t_httpUpdate_return ret = ESPhttpUpdate.update();
+    String firmwareFile = String("dist/firmware-") + FIRMWARE_VERSION + ".bin";
+    Stream& stream = downloader->streamFile(
+      MILIGHT_GITHUB_USER,
+      MILIGHT_GITHUB_REPO,
+      firmwareFile
+    );
+    
+    if (stream.available()) {
+      WiFiUDP::stopAll();
+      uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+      
+      if(!Update.begin(maxSketchSpace)){//start with max available size
+        Update.printError(Serial);
+        return;
+      }
+      
+      size_t read = 0;
+      
+      while (stream.available()) {
+        size_t l = stream.readBytes(downloader->buffer, GITHUB_DOWNLOADER_BUFFER_SIZE);
+        read += l;
+    
+        Serial.print("Read ");
+        Serial.print(l);
+        Serial.print(" bytes from Github (");
+        Serial.print(read);
+        Serial.println(" total)");
+        
+        if (Update.write(downloader->buffer, l) != l) {
+          Update.printError(Serial);
+          return;
+        }
+        
+        Serial.println("Write to flash");
+        
+        yield();
+      }
+      
+      Serial.println("Update complete");
+      
+      if (! Update.end(true)) {
+        server.send(200, "text/plain", String(FIRMWARE_VERSION));
+      } else {
+        Serial.println("Error completing update");
+      }
+    } else {
+      server.send(500, "text/plain", "Couldn't open strem to firmware file on Github. Check serial logs.");
+    }
   } else {
     String body = String("Unknown component: ") + component;
     server.send(400, "text/plain", body);
