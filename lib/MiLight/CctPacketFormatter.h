@@ -29,6 +29,8 @@ public:
     : PacketFormatter(7, 20)
   { }
 
+  virtual bool canHandle(const uint8_t* packet, const size_t len);
+
   virtual void updateStatus(MiLightStatus status, uint8_t groupId);
   virtual void command(uint8_t command, uint8_t arg);
 
@@ -43,8 +45,12 @@ public:
 
   virtual void format(uint8_t const* packet, char* buffer);
   virtual void initializePacket(uint8_t* packet);
+  virtual void finalizePacket(uint8_t* packet);
+  virtual BulbId parsePacket(const uint8_t* packet, JsonObject& result, GroupStateStore* stateStore);
 
   static uint8_t getCctStatusButton(uint8_t groupId, MiLightStatus status);
+  static uint8_t cctCommandIdToGroup(uint8_t command);
+  static MiLightStatus cctCommandToStatus(uint8_t command);
 };
 
 #endif

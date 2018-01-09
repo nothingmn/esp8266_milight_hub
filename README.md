@@ -11,6 +11,7 @@ This is a replacement for a Milight/LimitlessLED remote/gateway hosted on an ESP
 2. This project exposes a nice REST API to control your bulbs.
 3. You can secure the ESP8266 with a username/password, which is more than you can say for the Milight gateway! (The 2.4 GHz protocol is still totally insecure, so this doesn't accomplish much :).
 4. Official hubs connect to remote servers to enable WAN access, and this behavior is not disableable.
+5. This project is capable of passively listening for Milight packets sent from other devices (like remotes). It can publish data from intercepted packets to MQTT. This could, for example, allow the use of Milight remotes while keeping your home automation platform's state in sync. See the MQTT section for more detail.
 
 ## Supported bulbs
 
@@ -19,7 +20,7 @@ Support has been added for the following [bulb types](http://futlight.com/produc
 1. RGBW bulbs: FUT014, FUT016, FUT103
 1. Dual-White (CCT) bulbs: FUT019
 1. RGB LED strips: FUT025
-1. RGB + Dual White (RGB+CCT) bulbs: FUT015
+1. RGB + Dual White (RGB+CCT) bulbs: FUT015, FUT105
 
 Other bulb types might work, but have not been tested. It is also relatively easy to add support for new bulb types.
 
@@ -39,7 +40,7 @@ Both modules are SPI devices and should be connected to the standard SPI pins on
 
 ##### NRF24L01+
 
-[This guide](https://www.mysensors.org/build/esp8266_gateway) details how to connect an NRF24 to an ESP8266. I used GPIO 16 for CE and GPIO 15 for CSN. These can be configured later.
+[This guide](https://www.mysensors.org/build/connect_radio#nrf24l01+-&-esp8266) details how to connect an NRF24 to an ESP8266. I used GPIO 16 for CE and GPIO 15 for CSN instead. These can be configured later.
 
 ##### LT8900
 
@@ -47,15 +48,20 @@ Connect SPI pins (CS, SCK, MOSI, MISO) to appropriate SPI pins on the ESP8266. W
 
 #### Setting up the ESP
 
-You'll need to flash the firmware and a SPIFFS image. It's really easy to do this with [PlatformIO](http://platformio.org/):
+The goal here is to flash your ESP with the firmware. It's really easy to do this with [PlatformIO](http://platformio.org/):
 
 ```
 export ESP_BOARD=nodemcuv2
 platformio run -e $ESP_BOARD --target upload
-platformio run -e $ESP_BOARD --target uploadfs
 ```
 
 Of course make sure to substitute `nodemcuv2` with the board that you're using.
+
+**Note that currently you'll need to use the beta version of PlatformIO.**  To install with pip:
+
+```
+pip install -U https://github.com/platformio/platformio-core/archive/develop.zip
+```
 
 You can find pre-compiled firmware images on the [releases](https://github.com/sidoh/esp8266_milight_hub/releases).
 
@@ -64,6 +70,8 @@ You can find pre-compiled firmware images on the [releases](https://github.com/s
 This project uses [WiFiManager](https://github.com/tzapu/WiFiManager) to avoid the need to hardcode AP credentials in the firmware.
 
 When the ESP powers on, you should be able to see a network named "ESPXXXXX", with XXXXX being an identifier for your ESP. Connect to this AP and a window should pop up prompting you to enter WiFi credentials.
+
+The network password is "**milightHub**".
 
 #### Get IP Address
 
@@ -75,22 +83,22 @@ Both mDNS and SSDP are supported.
 
 #### Use it!
 
-The HTTP endpoints (shown below) will be fully functional at this point. You should also be able to navigate to `http://<ip_of_esp>`. The UI should look like this:
+The HTTP endpoints (shown below) will be fully functional at this point. You should also be able to navigate to `http://<ip_of_esp>`, or `http://milight-hub.local` if your client supports mDNS. The UI should look like this:
 
 ![Web UI](http://imgur.com/XNNigvL.png)
 
 ## REST endpoints
 
-1. `GET /`. Opens web UI. You'll need to upload it first.
+1. `GET /`. Opens web UI. 
 1. `GET /about`. Return information about current firmware version.
 1. `POST /system`. Post commands in the form `{"comamnd": <command>}`. Currently supports the commands: `restart`.
 1. `POST /firmware`. OTA firmware update.
-1. `POST /web`. Update web UI.
 1. `GET /settings`. Gets current settings as JSON.
 1. `PUT /settings`. Patches settings (e.g., doesn't overwrite keys that aren't present). Accepts a JSON blob in the body.
 1. `GET /radio_configs`. Get a list of supported radio configs (aka `device_type`s).
-1. `GET /gateway_traffic/:device_type`. Starts an HTTP long poll. Returns any Milight traffic it hears. Useful if you need to know what your Milight gateway/remote ID is. Since protocols for RGBW/CCT are different, specify one of `rgbw`, `cct`, or `rgb_cct` as `:device_type.
+1. `GET /gateway_traffic(/:device_type)?`. Starts an HTTP long poll. Returns any Milight traffic it hears. Useful if you need to know what your Milight gateway/remote ID is. Since protocols for RGBW/CCT are different, specify one of `rgbw`, `cct`, or `rgb_cct` as `:device_type.  The path `/gateway_traffic` without a `:device_type` will sniff for all protocols simultaneously.
 1. `PUT /gateways/:device_id/:device_type/:group_id`. Controls or sends commands to `:group_id` from `:device_id`. Accepts a JSON blob. The schema is documented below in the _Bulb commands_ section.
+1. `GET /gateways/:device_id/:device_type/:group_id`. Returns a JSON blob describing the state of the the provided group.
 1. `POST /raw_commands/:device_type`. Sends a raw RF packet with radio configs associated with `:device_type`. Example body:
     ```
     {"packet": "01 02 03 04 05 06 07 08 09", "num_repeats": 10}
@@ -157,11 +165,15 @@ To configure your ESP to integrate with MQTT, fill out the following settings:
 
 #### More detail on `mqtt_topic_pattern`
 
-`mqtt_topic_pattern` leverages single-level wildcards (documented [here](https://mosquitto.org/man/mqtt-7.html)). For example, specifying `milight/:device_id/:device_type/:group_id` will cause the ESP to subscribe to the topic `milight/+/+/+`. It will then interpret the second, third, and fourth tokens in topics it receives messages on as `:device_id`, `:device_type`, and `:group_id`, respectively.
+`mqtt_topic_pattern` leverages single-level wildcards (documented [here](https://mosquitto.org/man/mqtt-7.html)). For example, specifying `milight/:device_id/:device_type/:group_id` will cause the ESP to subscribe to the topic `milight/+/+/+`. It will then interpret the second, third, and fourth tokens in topics it receives messages on as `:device_id`, `:device_type`, and `:group_id`, respectively.  The following tokens are available:
+
+1. `:device_id` - Device ID. Can be hexadecimal (e.g. `0x1234`) or decimal (e.g. `4660`).
+1. `:device_type` - Remote type.  `rgbw`, `fut089`, etc.
+1. `:group_id` - Group.  0-4 for most remotes.  The "All" group is group 0.
 
 Messages should be JSON objects using exactly the same schema that the REST gateway uses for the `/gateways/:device_id/:device_type/:group_id` endpoint. Documented above in the _Bulb commands_ section.
 
-##### Example:
+#### Example:
 
 If `mqtt_topic_pattern` is set to `milight/:device_id/:device_type/:group_id`, you could send the following message to it (the below example uses a ruby MQTT client):
 
@@ -173,6 +185,53 @@ irb(main):004:0> client.publish('milight/0x118D/rgb_cct/1', '{"status":"ON","col
 ```
 
 This will instruct the ESP to send messages to RGB+CCT bulbs with device ID `0x118D` in group 1 to turn on, set color to RGB(255,200,255), and brightness to 100.
+
+#### Updates
+
+ESPMH is capable of providing two types of updates:
+
+1. Delta: as packets are received, they are translated into the corresponding command (e.g., "set brightness to 50").  The translated command is sent as an update.
+2. State: When an update is received, the corresponding command is applied to known group state, and the whole state for the group is transmitted.
+
+##### Delta updates
+
+To publish data from intercepted packets to an MQTT topic, configure MQTT server settings, and set the `mqtt_update_topic_pattern` to something of your choice. As with `mqtt_topic_pattern`, the tokens `:device_id`, `:device_type`, and `:group_id` will be substituted with the values from the relevant packet.  `:device_id` will always be substituted with the hexadecimal value of the ID.  You can also use `:hex_device_id`, or `:dec_device_id` if you prefer decimal.
+
+The published message is a JSON blob containing the state that was changed.
+
+As an example, if `mqtt_update_topic_pattern` is set to `milight/updates/:hex_device_id/:device_type/:group_id`, and the group 1 on button of a Milight remote is pressed, the following update will be dispatched:
+
+```ruby
+irb(main):005:0> client.subscribe('milight/updates/+/+/+')
+=> 27
+irb(main):006:0> puts client.get.inspect
+["lights/updates/0x1C8E/rgb_cct/1", "{\"status\":\"on\"}"]
+```
+
+##### Full state updates
+
+For this mode, `mqtt_state_topic_pattern` should be set to something like `milight/states/:hex_device_id/:device_type/:group_id`.  As an example:
+
+```ruby
+irb(main):005:0> client.subscribe('milight/states/+/+/+')
+=> 27
+irb(main):006:0> puts client.get.inspect
+["lights/states/0x1C8E/rgb_cct/1", "{\"state\":\"ON\",\"brightness\":255,\"color_temp\":370,\"bulb_mode\":\"white\"}"]
+irb(main):007:0> puts client.get.inspect
+["lights/states/0x1C8E/rgb_cct/1", "{\"state\":\"ON\",\"brightness\":100,\"color_temp\":370,\"bulb_mode\":\"white\"}"]
+```
+
+**Make sure that `mqtt_topic_pattern`, `mqtt_state_topic_pattern`, and `matt_update_topic_pattern` are all different!**  If they are they same you can put your ESP in a loop where its own updates trigger an infinite command loop.
+
+##### Customize fields
+
+You can select which fields should be included in state updates by configuring the `group_state_fields` parameter.  Available fields should be mostly self explanatory, with the possible exceptions of:
+
+1. `state` / `status` - same value with different keys (useful if your platform expects one or the other).
+1. `brightness` / `level` - [0, 255] and [0, 100] scales of the same value.
+1. `kelvin / color_temp` - [0, 100] and [153, 370] scales for the same value.  The later's unit is mireds.
+1. `bulb_mode` - what mode the bulb is in: white, rgb, etc.
+1. `color` / `computed_color` - behaves the same when bulb is in rgb mode.  `computed_color` will send RGB = 255,255,255 when in white mode.  This is useful for HomeAssistant where it always expects the color to be set.
 
 ## UDP Gateways
 

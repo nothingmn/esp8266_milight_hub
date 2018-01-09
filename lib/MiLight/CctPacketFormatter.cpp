@@ -1,16 +1,50 @@
 #include <CctPacketFormatter.h>
-#include <MiLightButtons.h>
+
+static const uint8_t CCT_PROTOCOL_ID = 0x5A;
+
+bool CctPacketFormatter::canHandle(const uint8_t *packet, const size_t len) {
+  return len == packetLength && packet[0] == CCT_PROTOCOL_ID;
+}
 
 void CctPacketFormatter::initializePacket(uint8_t* packet) {
   size_t packetPtr = 0;
 
-  packet[packetPtr++] = CCT;
+  // Byte 0: Packet length = 7 bytes
+
+  // Byte 1: CCT protocol
+  packet[packetPtr++] = CCT_PROTOCOL_ID;
+
+  // Byte 2 and 3: Device ID
   packet[packetPtr++] = deviceId >> 8;
   packet[packetPtr++] = deviceId & 0xFF;
+
+  // Byte 4: Zone
   packet[packetPtr++] = groupId;
+
+  // Byte 5: Bulb command, filled in later
   packet[packetPtr++] = 0;
-  packet[packetPtr++] = sequenceNum;
+
+  // Byte 6: Packet sequence number 0..255
   packet[packetPtr++] = sequenceNum++;
+
+  // Byte 7: Checksum over previous bytes, including packet length = 7
+  // The checksum will be calculated when setting the command field
+  packet[packetPtr++] = 0;
+
+  // Byte 8: CRC LSB
+  // Byte 9: CRC MSB
+}
+
+void CctPacketFormatter::finalizePacket(uint8_t* packet) {
+  uint8_t checksum;
+
+  // Calculate checksum over packet length .. sequenceNum
+  checksum = 7; // Packet length is not part of packet
+  for (uint8_t i = 0; i < 6; i++) {
+    checksum += currentPacket[i];
+  }
+  // Store the checksum in the sixth byte
+  currentPacket[6] = checksum;
 }
 
 void CctPacketFormatter::updateBrightness(uint8_t value) {
@@ -105,6 +139,72 @@ uint8_t CctPacketFormatter::getCctStatusButton(uint8_t groupId, MiLightStatus st
   }
 
   return button;
+}
+
+uint8_t CctPacketFormatter::cctCommandIdToGroup(uint8_t command) {
+  switch (command & 0xF) {
+    case CCT_GROUP_1_ON:
+    case CCT_GROUP_1_OFF:
+      return 1;
+    case CCT_GROUP_2_ON:
+    case CCT_GROUP_2_OFF:
+      return 2;
+    case CCT_GROUP_3_ON:
+    case CCT_GROUP_3_OFF:
+      return 3;
+    case CCT_GROUP_4_ON:
+    case CCT_GROUP_4_OFF:
+      return 4;
+    case CCT_ALL_ON:
+    case CCT_ALL_OFF:
+      return 0;
+  }
+
+  return 255;
+}
+
+MiLightStatus CctPacketFormatter::cctCommandToStatus(uint8_t command) {
+  switch (command & 0xF) {
+    case CCT_GROUP_1_ON:
+    case CCT_GROUP_2_ON:
+    case CCT_GROUP_3_ON:
+    case CCT_GROUP_4_ON:
+    case CCT_ALL_ON:
+      return ON;
+    case CCT_GROUP_1_OFF:
+    case CCT_GROUP_2_OFF:
+    case CCT_GROUP_3_OFF:
+    case CCT_GROUP_4_OFF:
+    case CCT_ALL_OFF:
+      return OFF;
+  }
+}
+
+BulbId CctPacketFormatter::parsePacket(const uint8_t* packet, JsonObject& result, GroupStateStore* stateStore) {
+  uint8_t command = packet[CCT_COMMAND_INDEX] & 0x7F;
+
+  BulbId bulbId(
+    (packet[1] << 8) | packet[2],
+    packet[3],
+    REMOTE_TYPE_CCT
+  );
+
+  uint8_t onOffGroupId = cctCommandIdToGroup(command);
+  if (onOffGroupId < 255) {
+    result["state"] = cctCommandToStatus(command) == ON ? "ON" : "OFF";
+  } else if (command == CCT_BRIGHTNESS_DOWN) {
+    result["command"] = "brightness_down";
+  } else if (command == CCT_BRIGHTNESS_UP) {
+    result["command"] = "brightness_up";
+  } else if (command == CCT_TEMPERATURE_DOWN) {
+    result["command"] = "temperature_down";
+  } else if (command == CCT_TEMPERATURE_UP) {
+    result["command"] = "temperature_up";
+  } else {
+    result["button_id"] = command;
+  }
+
+  return bulbId;
 }
 
 void CctPacketFormatter::format(uint8_t const* packet, char* buffer) {

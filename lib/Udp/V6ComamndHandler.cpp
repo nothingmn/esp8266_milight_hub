@@ -6,10 +6,10 @@
 #include <Size.h>
 
 V6CommandHandler* V6CommandHandler::ALL_HANDLERS[] = {
-  new V6RgbCctCommandHandler() PROGMEM,
-  new V6RgbwCommandHandler() PROGMEM,
-  new V6RgbCommandHandler() PROGMEM,
-  new V6CctCommandHandler() PROGMEM,
+  new V6RgbCctCommandHandler(),
+  new V6RgbwCommandHandler(),
+  new V6RgbCommandHandler(),
+  new V6CctCommandHandler()
 };
 
 const size_t V6CommandHandler::NUM_HANDLERS = size(ALL_HANDLERS);
@@ -21,7 +21,7 @@ bool V6CommandHandler::handleCommand(MiLightClient* client,
   uint32_t command,
   uint32_t commandArg)
 {
-  client->prepare(radioConfig, deviceId, group);
+  client->prepare(&remoteConfig, deviceId, group);
 
   if (commandType == V6_PAIR) {
     client->pair();

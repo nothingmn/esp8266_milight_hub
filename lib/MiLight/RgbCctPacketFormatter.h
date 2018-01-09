@@ -1,12 +1,18 @@
-#include <PacketFormatter.h>
-
-#define RGB_CCT_COMMAND_INDEX 4
-#define RGB_CCT_ARGUMENT_INDEX 5
-#define RGB_CCT_NUM_MODES 9
-#define V2_OFFSET_JUMP_START 0x54
+#include <V2PacketFormatter.h>
 
 #ifndef _RGB_CCT_PACKET_FORMATTER_H
 #define _RGB_CCT_PACKET_FORMATTER_H
+
+#define RGB_CCT_NUM_MODES 9
+
+#define RGB_CCT_COLOR_OFFSET 0x5F
+#define RGB_CCT_BRIGHTNESS_OFFSET 0x8F
+#define RGB_CCT_SATURATION_OFFSET 0xD
+#define RGB_CCT_KELVIN_OFFSET 0x94
+
+// Remotes have a larger range
+#define RGB_CCT_KELVIN_REMOTE_START  0x94
+#define RGB_CCT_KELVIN_REMOTE_END    0xCC
 
 enum MiLightRgbCctCommand {
   RGB_CCT_ON = 0x01,
@@ -23,27 +29,19 @@ enum MiLightRgbCctArguments {
   RGB_CCT_MODE_SPEED_DOWN = 0x0B
 };
 
-class RgbCctPacketFormatter : public PacketFormatter {
+class RgbCctPacketFormatter : public V2PacketFormatter {
 public:
-  static uint8_t const V2_OFFSETS[][4] PROGMEM;
-
   RgbCctPacketFormatter()
-    : PacketFormatter(9),
+    : V2PacketFormatter(0x20, 4),
       lastMode(0)
   { }
 
-  virtual void initializePacket(uint8_t* packet);
-
-  virtual void updateStatus(MiLightStatus status, uint8_t group);
   virtual void updateBrightness(uint8_t value);
-  virtual void command(uint8_t command, uint8_t arg);
   virtual void updateHue(uint16_t value);
   virtual void updateColorRaw(uint8_t value);
   virtual void updateColorWhite();
   virtual void updateTemperature(uint8_t value);
   virtual void updateSaturation(uint8_t value);
-  virtual void format(uint8_t const* packet, char* buffer);
-  virtual void unpair();
   virtual void enableNightMode();
 
   virtual void modeSpeedDown();
@@ -52,13 +50,7 @@ public:
   virtual void nextMode();
   virtual void previousMode();
 
-  virtual void finalizePacket(uint8_t* packet);
-
-  static void encodeV2Packet(uint8_t* packet);
-  static void decodeV2Packet(uint8_t* packet);
-  static uint8_t xorKey(uint8_t key);
-  static uint8_t encodeByte(uint8_t byte, uint8_t s1, uint8_t xorKey, uint8_t s2);
-  static uint8_t decodeByte(uint8_t byte, uint8_t s1, uint8_t xorKey, uint8_t s2);
+  virtual BulbId parsePacket(const uint8_t* packet, JsonObject& result, GroupStateStore* stateStore);
 
 protected:
 
